@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>明信片收藏夹 · V1</title>
+    <style>
+      :root {
+        --bg: #f7f7f9;
+        --panel: #ffffff;
+        --text: #222;
+        --muted: #666;
+        --primary: #2a7ade;
+        --danger: #c0392b;
+        --border: #e6e6ea;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "PingFang SC", "Microsoft Yahei", sans-serif; background: var(--bg); color: var(--text); }
+      header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--border); }
+      .toolbar { max-width: 1100px; margin: 0 auto; padding: 12px; display: flex; gap: 10px; align-items: center; }
+      .brand { font-weight: 700; margin-right: auto; }
+      input[type="text"] { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+      button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; }
+      button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+      button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+      main { max-width: 1100px; margin: 16px auto; padding: 0 12px; }
+      .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+      .thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: #ddd; }
+      .meta { padding: 10px; display: grid; gap: 6px; }
+      .title { font-weight: 600; }
+      .sub { color: var(--muted); font-size: 12px; }
+      .tags { color: var(--muted); font-size: 12px; }
+      .actions { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+
+      /* Modal */
+      .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; z-index: 100; }
+      .modal { width: 720px; max-width: 95vw; background: var(--panel); border-radius: 10px; border: 1px solid var(--border); overflow: hidden; }
+      .modal header { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+      .modal .content { padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .form-row { display: grid; gap: 6px; }
+      .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 12px; text-align: center; color: var(--muted); }
+      .modal footer { display: flex; gap: 10px; justify-content: flex-end; padding: 12px 14px; border-top: 1px solid var(--border); }
+
+      @media (max-width: 1024px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+      @media (max-width: 768px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="toolbar">
+        <div class="brand">🎴 明信片收藏夹</div>
+        <input id="searchInput" type="text" placeholder="搜索 标题 / 国家 / 标签（空格为与关系）" />
+        <button id="addBtn" class="primary">+ 新增</button>
+        <button id="exportBtn">导出 CSV</button>
+      </div>
+    </header>
+    <main>
+      <div id="grid" class="grid"></div>
+    </main>
+
+    <!-- Modal: Add / Edit -->
+    <div id="backdrop" class="modal-backdrop">
+      <div class="modal">
+        <header>
+          <strong id="modalTitle">新建卡片</strong>
+        </header>
+        <div class="content">
+          <div class="form-row">
+            <label>正面图（拖拽或点击上传，自动压缩至最长边 1200px）</label>
+            <div id="dropzone" class="dropzone">将图片拖拽到此处，或点击下方选择文件</div>
+            <input id="imageInput" type="file" accept="image/*" />
+          </div>
+          <div class="form-row">
+            <label>标题*</label>
+            <input id="titleInput" type="text" placeholder="例如：巴黎铁塔夜景" />
+          </div>
+          <div class="form-row">
+            <label>国家*</label>
+            <input id="countryInput" type="text" placeholder="例如：法国" />
+          </div>
+          <div class="form-row">
+            <label>年份</label>
+            <input id="yearInput" type="number" min="0" max="9999" placeholder="例如：2023" />
+          </div>
+          <div class="form-row">
+            <label>标签（英文逗号分隔）</label>
+            <input id="tagsInput" type="text" placeholder="旅游,地标,夜景" />
+          </div>
+          <div class="form-row">
+            <label>是否实寄</label>
+            <div>
+              <label><input type="radio" name="posted" value="true" /> 是</label>
+              <label style="margin-left:16px"><input type="radio" name="posted" value="false" checked /> 否</label>
+            </div>
+          </div>
+          <div class="form-row" style="grid-column: 1 / -1;">
+            <label>备注</label>
+            <textarea id="noteInput" rows="3" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:8px;"></textarea>
+          </div>
+        </div>
+        <footer>
+          <button id="saveBtn" class="primary">保存</button>
+          <button id="cancelBtn">取消</button>
+        </footer>
+      </div>
+    </div>
+
+    <script>
+      // --- Utils ---
+      const $ = sel => document.querySelector(sel);
+      const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+      function uuid() {
+        return (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2);
+      }
+
+      function tokenize(str) {
+        return String(str || '').toLowerCase().split(/\s+/).filter(Boolean);
+      }
+
+      function parseTags(str) {
+        return String(str || '')
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .filter((v, i, arr) => arr.indexOf(v) === i);
+      }
+
+      function blobToURL(blob) {
+        return URL.createObjectURL(blob);
+      }
+
+      // --- Image compression ---
+      async function compressImage(file, maxEdge = 1200, quality = 0.8) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              const { width, height } = img;
+              const scale = Math.min(1, maxEdge / Math.max(width, height));
+              const targetW = Math.round(width * scale);
+              const targetH = Math.round(height * scale);
+              const canvas = document.createElement('canvas');
+              canvas.width = targetW; canvas.height = targetH;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, targetW, targetH);
+              canvas.toBlob(b => b ? resolve(b) : reject(new Error('压缩失败')), 'image/jpeg', quality);
+            };
+            img.onerror = reject;
+            img.src = reader.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // --- IndexedDB ---
+      const DB_NAME = 'postcardsDB';
+      const STORE = 'postcards';
+      let db;
+
+      function openDB() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = () => {
+            const d = req.result;
+            const store = d.createObjectStore(STORE, { keyPath: 'id' });
+            store.createIndex('createdAt', 'createdAt');
+            store.createIndex('title', 'title');
+            store.createIndex('country', 'country');
+          };
+          req.onsuccess = () => { db = req.result; resolve(db); };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      function tx(mode = 'readonly') { return db.transaction(STORE, mode).objectStore(STORE); }
+
+      function getAll() {
+        return new Promise((resolve, reject) => {
+          const r = tx('readonly').getAll();
+          r.onsuccess = () => resolve(r.result || []);
+          r.onerror = () => reject(r.error);
+        });
+      }
+
+      function put(item) {
+        return new Promise((resolve, reject) => {
+          const r = tx('readwrite').put(item);
+          r.onsuccess = () => resolve();
+          r.onerror = () => reject(r.error);
+        });
+      }
+
+      function remove(id) {
+        return new Promise((resolve, reject) => {
+          const r = tx('readwrite').delete(id);
+          r.onsuccess = () => resolve();
+          r.onerror = () => reject(r.error);
+        });
+      }
+
+      // --- State ---
+      let items = []; // all from DB
+      let filtered = []; // after search
+      let editingId = null; // null for new
+      let currentImageBlob = null;
+
+      // --- Render Grid ---
+      function renderGrid(list) {
+        const el = $('#grid');
+        el.innerHTML = '';
+        list.forEach(it => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          const imgURL = it.frontImage ? blobToURL(it.frontImage) : '';
+          const img = document.createElement('img');
+          img.className = 'thumb';
+          if (imgURL) img.src = imgURL; else img.alt = '无图片';
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          const title = document.createElement('div');
+          title.className = 'title';
+          title.textContent = it.title;
+          const sub = document.createElement('div');
+          sub.className = 'sub';
+          sub.textContent = `${it.country}${it.year ? ' · ' + it.year : ''} · ${it.isPosted ? '已实寄' : '未实寄'}`;
+          const tags = document.createElement('div');
+          tags.className = 'tags';
+          tags.textContent = (it.tags || []).join(', ');
+          meta.appendChild(title); meta.appendChild(sub); meta.appendChild(tags);
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          const editBtn = document.createElement('button'); editBtn.textContent = '编辑';
+          const delBtn = document.createElement('button'); delBtn.textContent = '删除'; delBtn.className = 'danger';
+          actions.appendChild(editBtn); actions.appendChild(delBtn);
+          card.appendChild(img); card.appendChild(meta); card.appendChild(actions);
+          // events
+          editBtn.onclick = () => openModal(it);
+          delBtn.onclick = async () => {
+            if (confirm('确认删除该卡片？删除后不可恢复')) {
+              await remove(it.id);
+              await refresh();
+            }
+          };
+          el.appendChild(card);
+        });
+      }
+
+      // --- Search ---
+      function applySearch() {
+        const q = $('#searchInput').value;
+        const tokens = tokenize(q);
+        if (!tokens.length) { filtered = items.slice(); renderGrid(filtered); return; }
+        filtered = items.filter(it => {
+          const text = `${it.title} ${it.country} ${(it.tags||[]).join(' ')}`.toLowerCase();
+          return tokens.every(t => text.includes(t));
+        });
+        renderGrid(filtered);
+      }
+
+      // --- Modal ---
+      function openModal(it = null) {
+        editingId = it ? it.id : null;
+        $('#modalTitle').textContent = it ? '编辑卡片' : '新建卡片';
+        $('#titleInput').value = it ? it.title : '';
+        $('#countryInput').value = it ? it.country : '';
+        $('#yearInput').value = it && it.year ? it.year : '';
+        $('#tagsInput').value = it ? (it.tags||[]).join(',') : '';
+        $$('input[name="posted"]').forEach(r => { r.checked = (it ? String(it.isPosted) : 'false') === r.value; });
+        $('#noteInput').value = it ? (it.note || '') : '';
+        currentImageBlob = it ? it.frontImage : null;
+        $('#backdrop').style.display = 'flex';
+      }
+
+      function closeModal() { $('#backdrop').style.display = 'none'; editingId = null; currentImageBlob = null; $('#imageInput').value=''; }
+
+      async function onSave() {
+        const title = $('#titleInput').value.trim();
+        const country = $('#countryInput').value.trim();
+        const yearVal = $('#yearInput').value.trim();
+        const year = yearVal ? Number(yearVal) : undefined;
+        const tags = parseTags($('#tagsInput').value);
+        const isPosted = $$('input[name="posted"]').find(r => r.checked)?.value === 'true';
+        const note = $('#noteInput').value.trim();
+
+        if (!title || !country) { alert('标题与国家为必填'); return; }
+        if (!currentImageBlob) { alert('请上传正面图片'); return; }
+
+        const item = {
+          id: editingId || uuid(),
+          title, country, year, tags, isPosted, note,
+          frontImage: currentImageBlob,
+          createdAt: editingId ? (items.find(i=>i.id===editingId)?.createdAt || Date.now()) : Date.now(),
+        };
+        await put(item);
+        closeModal();
+        await refresh();
+      }
+
+      async function refresh() {
+        items = await getAll();
+        // sort by createdAt desc
+        items.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+        applySearch();
+      }
+
+      // --- Export CSV ---
+      function exportCSV() {
+        const cols = ['id','title','country','year','isPosted','tags','note','createdAt','imageFileName'];
+        const rows = [cols.join(',')];
+        (filtered.length ? filtered : items).forEach(it => {
+          const imageFileName = `${it.id}.jpg`;
+          const vals = [
+            it.id,
+            JSON.stringify(it.title || ''),
+            JSON.stringify(it.country || ''),
+            it.year ?? '',
+            it.isPosted ? '1' : '0',
+            JSON.stringify((it.tags||[]).join(',')),
+            JSON.stringify(it.note || ''),
+            it.createdAt || '',
+            imageFileName
+          ];
+          rows.push(vals.join(','));
+        });
+        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'postcards.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+
+      // --- Init ---
+      async function init() {
+        await openDB();
+        await refresh();
+        // events
+        $('#addBtn').onclick = () => openModal();
+        $('#cancelBtn').onclick = () => closeModal();
+        $('#saveBtn').onclick = () => onSave();
+        $('#searchInput').addEventListener('input', applySearch);
+        $('#exportBtn').onclick = exportCSV;
+
+        const dz = $('#dropzone');
+        dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = '#999'; });
+        dz.addEventListener('dragleave', e => { dz.style.borderColor = 'var(--border)'; });
+        dz.addEventListener('drop', async e => {
+          e.preventDefault(); dz.style.borderColor = 'var(--border)';
+          const file = e.dataTransfer.files && e.dataTransfer.files[0];
+          if (!file) return;
+          if (file.size > 5 * 1024 * 1024) { alert('图片超过 5MB，请压缩后再试'); return; }
+          currentImageBlob = await compressImage(file);
+          dz.textContent = '已选择图片（已压缩）';
+        });
+
+        $('#imageInput').addEventListener('change', async e => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          if (file.size > 5 * 1024 * 1024) { alert('图片超过 5MB，请压缩后再试'); return; }
+          currentImageBlob = await compressImage(file);
+          dz.textContent = '已选择图片（已压缩）';
+        });
+      }
+
+      init().catch(err => {
+        console.error(err);
+        alert('初始化失败：' + err.message);
+      });
+    </script>
+  </body>
+</html>
